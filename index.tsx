@@ -33,7 +33,8 @@ import {
   Bell,
   Share2,
   Download,
-  Upload
+  Upload,
+  ChevronRight
 } from 'lucide-react';
 import { 
   differenceInMonths, 
@@ -174,17 +175,13 @@ const askGemini = async (prompt: string) => {
 
 // --- 3. DATA PERSISTENCE LAYER ---
 const loadWithMigration = (key: string, defaultVal: any) => {
-  // 1. 현재 버전에서 시도
   const current = localStorage.getItem(`sl_${key}_${STORAGE_VER}`);
   if (current) return JSON.parse(current);
-
-  // 2. 이전 버전들에서 마이그레이션 시도
   for (const ver of PREVIOUS_VERSIONS) {
     const prev = localStorage.getItem(`sl_${key}_${ver}`);
     if (prev) {
-      console.log(`Migrating ${key} from ${ver} to ${STORAGE_VER}`);
       const data = JSON.parse(prev);
-      localStorage.setItem(`sl_${key}_${STORAGE_VER}`, prev); // 새 버전에 저장
+      localStorage.setItem(`sl_${key}_${STORAGE_VER}`, prev);
       return data;
     }
   }
@@ -208,9 +205,8 @@ export default function App() {
   const [isEditModalOpen, setIsEditModalOpen] = useState<Employee | null>(null);
   const [isBonusModalOpen, setIsBonusModalOpen] = useState<{empId: string, name: string} | null>(null);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<Employee | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<{ id: string, type: 'EMPLOYEE' | 'REQUEST' } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ id: string, type: 'EMPLOYEE' | 'REQUEST' | 'BONUS' } | null>(null);
 
-  // Save Effect
   useEffect(() => { localStorage.setItem(`sl_user_${STORAGE_VER}`, JSON.stringify(user)); }, [user]);
   useEffect(() => { localStorage.setItem(`sl_employees_${STORAGE_VER}`, JSON.stringify(employees)); }, [employees]);
   useEffect(() => { localStorage.setItem(`sl_requests_${STORAGE_VER}`, JSON.stringify(requests)); }, [requests]);
@@ -243,6 +239,8 @@ export default function App() {
       }
     } else if (type === 'REQUEST') {
       setRequests(prev => prev.filter(req => req.id !== id));
+    } else if (type === 'BONUS') {
+      setBonusRecords(prev => prev.filter(rec => rec.id !== id));
     }
     setPendingDelete(null);
     setIsEditModalOpen(null);
@@ -354,7 +352,15 @@ export default function App() {
 
       {isInviteModalOpen && <EmployeeModal onClose={() => setIsInviteModalOpen(false)} onSave={(emp: Employee) => { setEmployees(p => [...p, emp]); setIsInviteModalOpen(false); }} />}
       {isEditModalOpen && <EmployeeModal initialData={isEditModalOpen} onClose={() => setIsEditModalOpen(null)} onSave={handleUpdateEmployee} onDelete={(id: string) => setPendingDelete({id, type: 'EMPLOYEE'})} />}
-      {isBonusModalOpen && <BonusModal target={isBonusModalOpen} onClose={() => setIsBonusModalOpen(null)} onAdd={(rec: BonusLeaveRecord) => { setBonusRecords(p => [...p, rec]); setIsBonusModalOpen(null); }} />}
+      {isBonusModalOpen && (
+        <BonusManagementModal 
+          target={isBonusModalOpen} 
+          bonusRecords={bonusRecords.filter(b => b.employeeId === isBonusModalOpen.empId)}
+          onClose={() => setIsBonusModalOpen(null)} 
+          onAdd={(rec: BonusLeaveRecord) => { setBonusRecords(p => [...p, rec]); }}
+          onDeleteRecord={(id: string) => setPendingDelete({id, type: 'BONUS'})}
+        />
+      )}
       {pendingDelete && <DeleteConfirmModal type={pendingDelete.type} onCancel={() => setPendingDelete(null)} onConfirm={confirmDelete} />}
       {isHistoryModalOpen && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[110] flex items-center justify-center p-4">
@@ -373,7 +379,7 @@ const DeleteConfirmModal = ({ type, onCancel, onConfirm }: any) => (
   <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-in fade-in duration-200">
     <div className="bg-white w-full max-w-sm rounded-2xl shadow-2xl p-6 text-center space-y-5 animate-in zoom-in duration-200">
       <div className="w-16 h-16 bg-red-50 text-red-500 rounded-full flex items-center justify-center mx-auto"><AlertTriangle size={32}/></div>
-      <div><h4 className="text-lg font-bold">정말 삭제하시겠습니까?</h4><p className="text-sm text-slate-500 mt-2">{type === 'EMPLOYEE' ? '모든 정보와 연차 기록이 삭제되며 되돌릴 수 없습니다.' : '해당 연차 신청 내역이 삭제됩니다.'}</p></div>
+      <div><h4 className="text-lg font-bold">정말 삭제하시겠습니까?</h4><p className="text-sm text-slate-500 mt-2">{type === 'EMPLOYEE' ? '모든 정보와 연차 기록이 삭제되며 되돌릴 수 없습니다.' : type === 'BONUS' ? '해당 보너스 연차 지급 내역이 삭제됩니다.' : '해당 연차 신청 내역이 삭제됩니다.'}</p></div>
       <div className="flex gap-3"><button onClick={onCancel} className="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-bold text-sm">취소</button><button onClick={onConfirm} className="flex-1 py-3 bg-red-500 text-white rounded-xl font-bold text-sm">삭제하기</button></div>
     </div>
   </div>
@@ -503,11 +509,82 @@ const EmployeeModal = ({ initialData, onClose, onSave, onDelete }: any) => {
   );
 };
 
-const BonusModal = ({ target, onClose, onAdd }: any) => {
+const BonusManagementModal = ({ target, bonusRecords, onClose, onAdd, onDeleteRecord }: any) => {
   const [amount, setAmount] = useState(1);
   const [reason, setReason] = useState('');
+  const totalBonus = useMemo(() => bonusRecords.reduce((sum: number, r: any) => sum + r.amount, 0), [bonusRecords]);
+
   return (
-    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4"><div className="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-6 space-y-6 animate-in zoom-in duration-200"><div className="flex justify-between items-center"><h3 className="font-bold text-sm">보너스 연차 지급 ({target.name}님)</h3><button onClick={onClose}><X size={20}/></button></div><div className="space-y-2 text-center"><div className="flex items-center justify-center gap-6"><button type="button" onClick={() => setAmount(Math.max(0.5, amount - 0.5))} className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-600 text-2xl font-black">-</button><div className="text-4xl font-black w-24">{amount}일</div><button type="button" onClick={() => setAmount(amount + 0.5)} className="w-12 h-12 rounded-2xl bg-blue-600 text-white text-2xl font-black">+</button></div></div><div className="space-y-1.5"><label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">사유</label><textarea required className="w-full border p-4 rounded-2xl text-xs h-28 resize-none" value={reason} onChange={e => setReason(e.target.value)} placeholder="지급 사유를 입력하세요." /></div><button onClick={() => onAdd({ id: Math.random().toString(36).substr(2, 9), employeeId: target.empId, amount, reason, createdAt: new Date().toISOString() })} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-bold text-sm">지급 완료</button></div></div>
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
+      <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-200 flex flex-col max-h-[90vh]">
+        <div className="px-6 py-5 border-b flex justify-between items-center bg-slate-50 shrink-0">
+          <div>
+            <h3 className="font-bold text-sm text-slate-900">{target.name}님 보너스 연차 관리</h3>
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-0.5">현재 총 보너스: {totalBonus}일</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 hover:bg-slate-200 rounded-lg transition-colors"><X size={20}/></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6 space-y-8">
+          {/* 내역 리스트 */}
+          <section className="space-y-3">
+            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest border-b pb-2">지급 내역</h4>
+            <div className="space-y-2">
+              {bonusRecords.length === 0 ? (
+                <div className="text-center py-8 text-slate-400 text-xs italic bg-slate-50 rounded-2xl border border-dashed font-medium">지급된 보너스 내역이 없습니다.</div>
+              ) : bonusRecords.map((rec: any) => (
+                <div key={rec.id} className="flex items-center justify-between p-3.5 bg-white border border-slate-100 rounded-2xl hover:border-blue-100 transition-all group">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center font-bold text-xs">+{rec.amount}</div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-slate-800 truncate">{rec.reason}</p>
+                      <p className="text-[9px] text-slate-400 font-medium">{rec.createdAt.split('T')[0]}</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => onDeleteRecord(rec.id)} 
+                    className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                  >
+                    <Trash2 size={14}/>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* 추가 폼 */}
+          <section className="bg-slate-50/50 p-5 rounded-2xl border border-slate-100 space-y-5">
+            <h4 className="text-[10px] font-bold text-slate-900 uppercase tracking-widest text-center">신규 보너스 연차 추가</h4>
+            <div className="flex items-center justify-center gap-6">
+              <button type="button" onClick={() => setAmount(Math.max(0.5, amount - 0.5))} className="w-10 h-10 rounded-xl bg-white border text-slate-600 text-xl font-black hover:bg-slate-100 transition-all shadow-sm">-</button>
+              <div className="text-3xl font-black text-slate-900 w-20 text-center">{amount}일</div>
+              <button type="button" onClick={() => setAmount(amount + 0.5)} className="w-10 h-10 rounded-xl bg-blue-600 text-white text-xl font-black hover:bg-blue-700 transition-all shadow-lg shadow-blue-100">+</button>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-[9px] font-bold text-slate-400 uppercase tracking-widest ml-1">지급 사유</label>
+              <textarea 
+                required 
+                className="w-full border-2 border-white p-4 rounded-xl text-xs font-medium bg-white h-24 resize-none focus:border-blue-500 outline-none transition-all shadow-sm" 
+                value={reason} 
+                onChange={e => setReason(e.target.value)} 
+                placeholder="성과 보상, 이벤트 참여 등..." 
+              />
+            </div>
+            <button 
+              onClick={() => {
+                if(!reason.trim()) { alert('사유를 입력해주세요.'); return; }
+                onAdd({ id: Math.random().toString(36).substr(2, 9), employeeId: target.empId, amount, reason, createdAt: new Date().toISOString() });
+                setReason('');
+                setAmount(1);
+              }} 
+              className="w-full py-3.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-blue-600 transition-all shadow-xl shadow-slate-200"
+            >
+              내역 추가하기
+            </button>
+          </section>
+        </div>
+      </div>
+    </div>
   );
 };
 
