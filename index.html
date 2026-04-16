@@ -1,0 +1,116 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isEmployee(employeeId) {
+      return isAuthenticated() && 
+             get(/databases/$(database)/documents/employees/$(employeeId)).data.uid == request.auth.uid;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        (request.auth.token.email != null && request.auth.token.email.toLower() == "summer@decentlaw.io") ||
+        exists(/databases/$(database)/documents/employees_meta/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/employees_meta/$(request.auth.uid)).data.role == 'admin'
+      );
+    }
+
+    function isValidEmployee(data) {
+      return data.keys().hasAll(['employeeId', 'email', 'role', 'joinedAt', 'hireDate']) &&
+             (data.employeeId is string && data.employeeId.size() <= 64) &&
+             (data.email is string && data.email.size() <= 256) &&
+             data.role in ['admin', 'user'] &&
+             (data.joinedAt is string && data.joinedAt.size() <= 64) &&
+             (data.hireDate is string && data.hireDate.size() <= 32) &&
+             (!('uid' in data) || (data.uid == null || (data.uid is string && data.uid.size() <= 128))) &&
+             (!('displayName' in data) || (data.displayName == null || (data.displayName is string && data.displayName.size() <= 100))) &&
+             (!('photoURL' in data) || (data.photoURL == null || (data.photoURL is string && data.photoURL.size() <= 1000))) &&
+             (!('adjustment' in data) || (data.adjustment is number));
+    }
+
+    function isValidLeaveRequest(data) {
+      return data.keys().hasAll(['employeeId', 'type', 'startDate', 'endDate', 'status', 'reason', 'createdAt']) &&
+             (data.employeeId is string && data.employeeId.size() <= 64) &&
+             data.type in ['ANNUAL', 'MORNING_HALF', 'AFTERNOON_HALF', 'BONUS', 'BONUS_MORNING_HALF', 'BONUS_AFTERNOON_HALF', 'BIRTHDAY', 'OFFICIAL'] &&
+             data.status in ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'] &&
+             (data.startDate is string && data.startDate.size() <= 32) &&
+             (data.endDate is string && data.endDate.size() <= 32) &&
+             (data.reason is string && data.reason.size() <= 1000) &&
+             (data.createdAt is string && data.createdAt.size() <= 64) &&
+             (!('employeeName' in data) || (data.employeeName is string && data.employeeName.size() <= 100)) &&
+             (!('employeeEmail' in data) || (data.employeeEmail is string && data.employeeEmail.size() <= 256)) &&
+             (!('processedBy' in data) || (data.processedBy is string && data.processedBy.size() <= 128)) &&
+             (!('processedAt' in data) || (data.processedAt is string && data.processedAt.size() <= 64));
+    }
+
+    function isValidRecord(data) {
+      return data.keys().hasAll(['employeeId', 'amount', 'reason', 'createdAt']) &&
+             (data.employeeId is string && data.employeeId.size() <= 64) &&
+             data.amount is number &&
+             (data.reason is string && data.reason.size() <= 1000) &&
+             (data.createdAt is string && data.createdAt.size() <= 64);
+    }
+
+    match /employees/{employeeId} {
+      allow read: if isAuthenticated();
+      allow create: if isAdmin() && isValidEmployee(request.resource.data);
+      allow update: if (isAdmin() || isEmployee(employeeId)) && isValidEmployee(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /employees_meta/{uid} {
+      allow read: if isAuthenticated() && request.auth.uid == uid;
+      allow write: if isAdmin();
+    }
+
+    // Temporary compatibility rule for migration
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /leaveRequests/{requestId} {
+      allow get: if isAuthenticated() && (isEmployee(resource.data.employeeId) || isAdmin());
+      allow list: if isAuthenticated();
+      allow create: if isAuthenticated() &&
+                      isValidLeaveRequest(request.resource.data) &&
+                      (isAdmin() ||
+                       (isEmployee(request.resource.data.employeeId) &&
+                        request.resource.data.status == 'PENDING'));
+      allow update: if isAuthenticated() &&
+                      isValidLeaveRequest(request.resource.data) &&
+                      (isAdmin() ||
+                       (isEmployee(resource.data.employeeId) &&
+                        request.resource.data.employeeId == resource.data.employeeId &&
+                        request.resource.data.type == resource.data.type &&
+                        (request.resource.data.status == resource.data.status ||
+                         request.resource.data.status == 'CANCELLED')));
+      allow delete: if isAdmin();
+    }
+
+    match /bonusRecords/{recordId} {
+      allow get: if isAuthenticated() && (isEmployee(resource.data.employeeId) || isAdmin());
+      allow list: if isAuthenticated();
+      allow create: if isAdmin() && isValidRecord(request.resource.data);
+      allow update: if isAdmin() && isValidRecord(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /carriedRecords/{recordId} {
+      allow get: if isAuthenticated() && (isEmployee(resource.data.employeeId) || isAdmin());
+      allow list: if isAuthenticated();
+      allow create: if isAdmin() && isValidRecord(request.resource.data);
+      allow update: if isAdmin() && isValidRecord(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /settings/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+  }
+}

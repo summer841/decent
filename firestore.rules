@@ -1,0 +1,103 @@
+{
+  "entities": {
+    "Employee": {
+      "title": "Employee",
+      "description": "Core employee entity",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string", "description": "Unique employee identifier (e.g., EMP001)" },
+        "uid": { "type": "string", "description": "Linked Firebase Auth UID (optional)" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "joinedAt": { "type": "string", "format": "date-time" },
+        "hireDate": { "type": "string", "format": "date" },
+        "adjustment": { "type": "number", "description": "Manual leave adjustment" }
+      },
+      "required": ["employeeId", "email", "role", "joinedAt", "hireDate"]
+    },
+    "LeaveRequest": {
+      "title": "LeaveRequest",
+      "description": "Leave application request",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string" },
+        "employeeName": { "type": "string" },
+        "employeeEmail": { "type": "string" },
+        "type": { "type": "string", "enum": ["ANNUAL", "MORNING_HALF", "AFTERNOON_HALF", "BONUS", "BONUS_MORNING_HALF", "BONUS_AFTERNOON_HALF", "BIRTHDAY", "OFFICIAL"] },
+        "startDate": { "type": "string", "format": "date" },
+        "endDate": { "type": "string", "format": "date" },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED", "CANCELLED"] },
+        "reason": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "processedBy": { "type": "string", "description": "employeeId of the processor" },
+        "processedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["employeeId", "type", "startDate", "endDate", "status", "reason", "createdAt"]
+    },
+    "BonusLeaveRecord": {
+      "title": "BonusLeaveRecord",
+      "description": "Bonus leave granted to employee",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string" },
+        "employeeEmail": { "type": "string" },
+        "amount": { "type": "number" },
+        "reason": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["employeeId", "amount", "reason", "createdAt"]
+    },
+    "CarriedOverRecord": {
+      "title": "CarriedOverRecord",
+      "description": "Leave carried over from previous year",
+      "type": "object",
+      "properties": {
+        "employeeId": { "type": "string" },
+        "employeeEmail": { "type": "string" },
+        "amount": { "type": "number" },
+        "reason": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["employeeId", "amount", "reason", "createdAt"]
+    },
+    "SystemSettings": {
+      "title": "SystemSettings",
+      "description": "Global application settings",
+      "type": "object",
+      "properties": {
+        "slackWebhookUrl": { "type": "string" },
+        "useGoogleCalendar": { "type": "boolean" },
+        "googleCalendarId": { "type": "string" },
+        "lastBackupDate": { "type": "string", "format": "date-time" }
+      }
+    }
+  },
+  "firestore": {
+    "/employees/{employeeId}": {
+      "schema": "Employee",
+      "description": "Employee records"
+    },
+    "/employees_meta/{uid}": {
+      "schema": "object",
+      "description": "Mapping from Auth UID to employeeId and role"
+    },
+    "/leaveRequests/{requestId}": {
+      "schema": "LeaveRequest",
+      "description": "Leave requests"
+    },
+    "/bonusRecords/{recordId}": {
+      "schema": "BonusLeaveRecord",
+      "description": "Bonus leave records"
+    },
+    "/carriedRecords/{recordId}": {
+      "schema": "CarriedOverRecord",
+      "description": "Carried over leave records"
+    },
+    "/settings/global": {
+      "schema": "SystemSettings",
+      "description": "Global settings"
+    }
+  }
+}
